@@ -1,30 +1,36 @@
 package amgg.mc_model_dumper;
 
+import mcp.MethodsReturnNonnullByDefault;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.renderer.entity.RenderLivingBase;
 import net.minecraft.command.ICommand;
-import net.minecraft.entity.Entity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventHandler;
-import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import org.apache.logging.log4j.Logger;
 
-// command stuff
-import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.text.TextComponentString;
-import net.minecraft.util.text.TextFormatting;
+import org.intellij.lang.annotations.PrintFormat;
 
 import javax.annotation.Nullable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EmptyStackException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+@MethodsReturnNonnullByDefault
 @Mod(
     modid = Properties.MODID,
     name = Properties.NAME,
@@ -33,7 +39,7 @@ import java.util.stream.Collectors;
 )
 public class ModMain {
     private static Logger logger;
-    
+
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
         logger = event.getModLog();
@@ -67,15 +73,168 @@ public class ModMain {
                         }
                         net.minecraft.client.renderer.entity.Render<? extends net.minecraft.entity.Entity> renderer = Minecraft.getMinecraft().getRenderManager().entityRenderMap.get(clz);
                         if(renderer == null) throw new CommandException("no renderer found for class " + clzname);
+                        if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
+                        RenderLivingBase<?> rendererRLB = (RenderLivingBase<?>)renderer;
+                        AMGGStringBuilder sb = new AMGGStringBuilder()
+                            .setIndent("[indent]")
+                            .addFormat("renderer for %s:", clzname)
+                            .pushIndent()
+                                .add("\nboxes:")
+                                .pushIndent()
+                                .forEach(rendererRLB.getMainModel().boxList,
+                                    (sb2, box) -> sb2
+                                        .add("\n")
+                                        .addFormatIf(box.boxName != null, "\"%s\"", box.boxName)
+                                        .bracketCurly()
+                                        .forEachDelimited(box.cubeList, " ",
+                                            (sb3, cube) -> sb3
+                                                .bracketSquare()
+                                                .addFormatIf(cube.boxName != null, "\"%s\" ", cube.boxName)
+                                                .addFormat("(%.2f,%.2f,%.2f)\u2192(%.2f,%.2f,%.2f)", cube.posX1, cube.posY1, cube.posZ1, cube.posX2, cube.posY2, cube.posZ2)
+                                                .closeBracket()
+                                        )
+                                        .closeBracket()
+                                )
+                                .popIndent()
+                            .popIndent()
+                            ;
+                        sender.sendMessage(new TextComponentString(sb.toString()));
                     },
                     (server, sender, args, targetPos, argsIdx) ->
                         Minecraft.getMinecraft().getRenderManager().entityRenderMap.keySet().stream()
-                            .map(clz->clz.getName())
+                            .map(Class::getName)
                             .filter(s -> s.startsWith(args[argsIdx]))
                             .collect(Collectors.toList())
                 )
             )
         ;
+
+    public static class AMGGStringBuilder {
+        //        private static final Formatter formatter = new Formatter(Locale.ENGLISH);
+        private final List<String> chunks = new ArrayList<>();
+        private final Stack<String> indentStack = new Stack<>();
+        private @Nullable String currentIndent = null;
+        private String defaultIndent = "\t";
+        private final Stack<String> bracketStack = new Stack<>();
+        private final StringBuilder builder = new StringBuilder();
+
+        public AMGGStringBuilder() {}
+
+        public AMGGStringBuilder add(String s) { _add(String.valueOf(s)); return this; }
+        public AMGGStringBuilder add(Object o) { _add(String.valueOf(o)); return this; }
+        public AMGGStringBuilder addIf(boolean condition, String s) { if(condition) { add(s); } return this; }
+        public AMGGStringBuilder addIf(boolean condition, Object o) { if(condition) { add(o); } return this; }
+        public AMGGStringBuilder addFormat(@PrintFormat String format, Object... args) {
+            // TODO this will use default locale - do we actually want that?
+            _add(String.format(format, args));
+            return this;
+        }
+        public AMGGStringBuilder addFormatIf(boolean condition, @PrintFormat String format, Object... args) {
+            if(condition) return addFormat(format, args);
+            return this;
+        }
+
+        public <T> AMGGStringBuilder forEach(Iterable<T> it, BiConsumer<AMGGStringBuilder, T> func) {
+            it.forEach(t -> func.accept(this, t));
+            return this;
+        }
+        public <T> AMGGStringBuilder forEachDelimited(Iterable<T> it, String delimiter, BiConsumer<AMGGStringBuilder, T> func) {
+            boolean first = true;
+            for(T t : it) {
+                if(first) first = false;
+                else add(delimiter);
+                func.accept(this, t);
+            }
+            return this;
+        }
+
+        // ==== indent handling stuff ====
+        private void updateIndent() {
+            if(indentStack.empty()) currentIndent = null;
+            else currentIndent = String.join("", indentStack);
+        }
+        private void _add(String s) {
+            if(!s.contains("\n")) chunks.add(s);
+            else { // "\n" in s
+                int endidx = 0, startidx = 0;
+                while((endidx = s.indexOf('\n', endidx)) >= 0) {
+
+                    chunks.add(s.substring(startidx, endidx + 1));
+                    startidx = endidx = endidx + 1;
+                }
+            }
+        }
+        /**
+         * set default indent for all later calls to {@link #pushIndent()}
+         * @param indent default indent level
+         * @see #pushIndent
+         */
+        public AMGGStringBuilder setIndent(String indent) { defaultIndent = indent; return this; }
+        /**
+         * push a new custom indent string to the indent stack.
+         * @param indent indent string
+         * @see AMGGStringBuilder#pushIndent()
+         */
+        public AMGGStringBuilder pushIndent(String indent) { indentStack.push(indent); return this; }
+        /**
+         * push default indent (set by {@link #setIndent(String)} to indent stack
+         * @see #setIndent
+         * @see #pushIndent(String)
+         */
+        public AMGGStringBuilder pushIndent() { indentStack.push(defaultIndent); return this; }
+        /**
+         * pop one level of indent from the indent stack
+         * @see #clearIndent
+         * @throws EmptyStackException if indent stack is already empty
+         */
+        public AMGGStringBuilder popIndent() throws EmptyStackException { indentStack.pop(); return this; }
+        /**
+         * clear indent stack
+         * @see #popIndent
+         */
+        public AMGGStringBuilder clearIndent() { indentStack.clear(); return this; }
+
+        // ==== bracketing stuff ====
+
+        /**
+         * immediately add left bracket, and push right bracket to bracket stack to be added later
+         * @param left left bracket
+         * @param right right bracket
+         * @see #closeBracket
+         */
+        public AMGGStringBuilder bracket(String left, String right) {
+            _add(left);
+            bracketStack.push(right);
+            return this;
+        }
+        /** {@link #bracket} helper for parentheses/round brackets */
+        public AMGGStringBuilder bracketRound() { bracket("(", ")"); return this; }
+        /** {@link #bracket} helper for chevrons/angle brackets */
+        public AMGGStringBuilder bracketSquare() { bracket("[", "]"); return this; }
+        /** {@link #bracket} helper for square brackets */
+        public AMGGStringBuilder bracketCurly() { bracket("{", "}"); return this; }
+        /** {@link #bracket} helper for braces/curly brackets */
+        public AMGGStringBuilder bracketAngle() { bracket("<", ">"); return this; }
+        /**
+         * pop a bracket from the bracket stack and add it
+         * @throws EmptyStackException if bracket stack is already empty
+         * @see #closeAllBrackets
+         */
+        public AMGGStringBuilder closeBracket() throws EmptyStackException { _add(bracketStack.pop()); return this; }
+        /**
+         * pop and add all remaining brackets from the bracket stack
+         * @see #closeBracket
+         */
+        public AMGGStringBuilder closeAllBrackets() {
+            while(!bracketStack.empty()) _add(bracketStack.pop());
+            return this;
+        }
+
+        @Override
+        public String toString() {
+            return String.join("", chunks);
+        }
+    }
 
     public static abstract class AMGGCommandBase implements ICommand {
         public final List<String> aliases;
