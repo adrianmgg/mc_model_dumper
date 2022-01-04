@@ -14,8 +14,19 @@ apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 
 version = '1.0'
-group = 'com.yourname.modid' // http://maven.apache.org/guides/mini/guide-naming-conventions.html
-archivesBaseName = 'modid'
+group = 'amgg.mc_model_dumper' // http://maven.apache.org/guides/mini/guide-naming-conventions.html
+archivesBaseName = 'modeldumper'
+
+// substituted in to various places
+def templateContext = [
+    version: project.version,
+    mcversion: '1.12.2',
+    modid: project.name,
+    modname: 'Model Dumper',
+    moddescription: 'export hard-coded entity models',
+    author: 'amgg',
+    credits: '',
+]
 
 sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8' // Need this here so eclipse task generates correctly.
 
@@ -81,16 +92,15 @@ dependencies {
 
 }
 
-// Example for how to get properties into the manifest for reading by the runtime..
 jar {
     manifest {
         attributes([
-            "Specification-Title": "examplemod",
-            "Specification-Vendor": "examplemodsareus",
-            "Specification-Version": "1", // We are version 1 of ourselves
+            "Specification-Title": templateContext.modname,
+            "Specification-Vendor": templateContext.author,
+            "Specification-Version": templateContext.version,
             "Implementation-Title": project.name,
-            "Implementation-Version": "${version}",
-            "Implementation-Vendor" :"examplemodsareus",
+            "Implementation-Version": templateContext.version,
+            "Implementation-Vendor": templateContext.author,
             "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
         ])
     }
@@ -102,15 +112,39 @@ jar.finalizedBy('reobfJar')
 // However if you are in a multi-project build, dev time needs unobfed jar files, so you can delay the obfuscation until publishing by doing
 //publish.dependsOn('reobfJar')
 
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            artifact jar
-        }
+// publishing {
+//     publications {
+//         mavenJava(MavenPublication) {
+//             artifact jar
+//         }
+//     }
+//     repositories {
+//         maven {
+//             url "file:///${project.projectDir}/mcmodsrepo"
+//         }
+//     }
+// }
+
+
+
+processResources {
+    inputs.properties templateContext
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        // expand(inputs)
+        expand templateContext
     }
-    repositories {
-        maven {
-            url "file:///${project.projectDir}/mcmodsrepo"
-        }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
     }
 }
+
+// https://stackoverflow.com/a/51944448/8762161
+task generateJava(type: Copy) {
+    inputs.properties templateContext
+    from 'src/template/java'
+    into "$buildDir/generated/java"
+    expand templateContext
+}
+sourceSets.main.java.srcDir "$buildDir/generated/java"
+compileJava.dependsOn generateJava
