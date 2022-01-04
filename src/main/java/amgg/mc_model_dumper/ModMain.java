@@ -1,9 +1,13 @@
 package amgg.mc_model_dumper;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.command.ICommand;
+import net.minecraft.entity.Entity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventHandler;
+import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
@@ -19,6 +23,7 @@ import net.minecraft.util.text.TextFormatting;
 
 import javax.annotation.Nullable;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Mod(
     modid = Properties.MODID,
@@ -46,25 +51,32 @@ public class ModMain {
     public static final AMGGCommandBase dumpModelCommand =
         new AMGGCommandParent("dumpmodel")
             .addSubcommand(
-                new AMGGCommandParent("aaa")
-                    .addSubcommand(new AMGGCommandLeaf("a01"))
-                    .addSubcommand(new AMGGCommandLeaf("a02"))
-                    .addSubcommand(new AMGGCommandLeaf("a03"))
-            )
-            .addSubcommand(
-                new AMGGCommandParent("bbb")
-                    .addSubcommand(new AMGGCommandLeaf("b01"))
-                    .addSubcommand(new AMGGCommandLeaf("b02"))
-                    .addSubcommand(new AMGGCommandLeaf("b03"))
-            )
-            .addSubcommand(
-                new AMGGCommandParent("ccc")
-                    .addSubcommand(new AMGGCommandLeaf("c01"))
-                    .addSubcommand(new AMGGCommandLeaf("c02"))
-                    .addSubcommand(new AMGGCommandLeaf("c03"))
+                new AMGGCommandLeaf("entity",
+                    (server, sender, args) -> {
+                        logger.info("{}", args);
+                        if(args.size() < 1) throw new CommandException("argument [class] not specified");
+                        String clzname = args.get(0);
+                        Class<?> clz;
+                        try {
+                            clz = Class.forName(clzname);
+                        } catch (ClassNotFoundException e) {
+                            throw new CommandException("can't find class for name " + clzname);
+                        }
+                        if(!net.minecraft.entity.Entity.class.isAssignableFrom(clz)) {
+                            throw new CommandException("class " + clzname + " not assignable to net.minecraft.entity.Entity");
+                        }
+                        net.minecraft.client.renderer.entity.Render<? extends net.minecraft.entity.Entity> renderer = Minecraft.getMinecraft().getRenderManager().entityRenderMap.get(clz);
+                        if(renderer == null) throw new CommandException("no renderer found for class " + clzname);
+                    },
+                    (server, sender, args, targetPos, argsIdx) ->
+                        Minecraft.getMinecraft().getRenderManager().entityRenderMap.keySet().stream()
+                            .map(clz->clz.getName())
+                            .filter(s -> s.startsWith(args[argsIdx]))
+                            .collect(Collectors.toList())
+                )
             )
         ;
- 
+
     public static abstract class AMGGCommandBase implements ICommand {
         public final List<String> aliases;
         public final String name;
@@ -92,6 +104,11 @@ public class ModMain {
             if(ret == null) return new ArrayList<>();  // TODO keep one frozen empty list to return every time instead?
             else return ret;
         }
+
+        abstract void execute2(MinecraftServer server, ICommandSender sender, List<String> args) throws CommandException;
+        public final void execute(MinecraftServer server, ICommandSender sender, String[] args) throws CommandException {
+            execute2(server, sender, Arrays.asList(args));
+        }
     }
 
     public static class AMGGCommandParent extends AMGGCommandBase {
@@ -107,7 +124,12 @@ public class ModMain {
             return this;
         }
 
-        public void execute(MinecraftServer server, ICommandSender sender, String[] args) throws CommandException {
+        public void execute2(MinecraftServer server, ICommandSender sender, List<String> args) throws CommandException {
+            if(args.size() == 0) throw new CommandException("no subcommand specified for command " + name);
+            String cmdName = args.get(0);
+            AMGGCommandBase cmd = subcommands.get(cmdName);
+            if(cmd == null) throw new CommandException("unknown subcommand " + cmdName + " for command " + name);
+            cmd.execute2(server, sender, args.subList(1, args.size()));
         }
         public List<String> getTabCompletions2(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos, int argsIdx) {
 
@@ -130,16 +152,32 @@ public class ModMain {
         }
     }
 
-    public static class AMGGCommandLeaf extends AMGGCommandBase {
-        public AMGGCommandLeaf(String name, String[] aliases) {
-            super(name, aliases);
-        }
-        AMGGCommandLeaf(String name) { this(name, null); }
+    @FunctionalInterface
+    public static interface CommandExecute {
+        void execute(MinecraftServer server, ICommandSender sender, List<String> args) throws CommandException;
+    }
+    @FunctionalInterface
+    public static interface CommandTabComplete {
+        List<String> getTabCompletions2(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos, int argsIdx);
+    }
 
-        public void execute(MinecraftServer server, ICommandSender sender, String[] args) throws CommandException {
+    public static class AMGGCommandLeaf extends AMGGCommandBase {
+        private final CommandExecute executeFunc;
+        private final CommandTabComplete completeFunc;
+        public AMGGCommandLeaf(String name, String[] aliases, CommandExecute executeFunc, CommandTabComplete completeFunc) {
+            super(name, aliases);
+            this.executeFunc = executeFunc;
+            this.completeFunc = completeFunc;
+        }
+        AMGGCommandLeaf(String name, CommandExecute executeFunc, CommandTabComplete completeFunc) {
+            this(name, null, executeFunc, completeFunc);
+        }
+
+        public void execute2(MinecraftServer server, ICommandSender sender, List<String> args) throws CommandException {
+            executeFunc.execute(server, sender, args);
         }
         public List<String> getTabCompletions2(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos, int argsIdx) {
-            return null;
+            return completeFunc.getTabCompletions2(server, sender, args, targetPos, argsIdx);
         }
     }
 }
