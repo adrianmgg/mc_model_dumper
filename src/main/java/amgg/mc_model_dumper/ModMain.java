@@ -19,6 +19,7 @@ import net.minecraft.util.text.TextComponentString;
 import org.intellij.lang.annotations.PrintFormat;
 
 import javax.annotation.Nullable;
+import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,6 +32,7 @@ import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 @MethodsReturnNonnullByDefault
+@ParametersAreNonnullByDefault
 @Mod(
     modid = Properties.MODID,
     name = Properties.NAME,
@@ -76,7 +78,7 @@ public class ModMain {
                         if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
                         RenderLivingBase<?> rendererRLB = (RenderLivingBase<?>)renderer;
                         AMGGStringBuilder sb = new AMGGStringBuilder()
-                            .setIndent("[indent]")
+                            .setIndent("  ")
                             .addFormat("renderer for %s:", clzname)
                             .pushIndent()
                                 .add("\nboxes:")
@@ -111,7 +113,7 @@ public class ModMain {
 
     public static class AMGGStringBuilder {
         //        private static final Formatter formatter = new Formatter(Locale.ENGLISH);
-        private final List<String> chunks = new ArrayList<>();
+//        private final List<String> chunks = new ArrayList<>();
         private final Stack<String> indentStack = new Stack<>();
         private @Nullable String currentIndent = null;
         private String defaultIndent = "\t";
@@ -120,8 +122,8 @@ public class ModMain {
 
         public AMGGStringBuilder() {}
 
-        public AMGGStringBuilder add(String s) { _add(String.valueOf(s)); return this; }
-        public AMGGStringBuilder add(Object o) { _add(String.valueOf(o)); return this; }
+        public AMGGStringBuilder add(@Nullable String s) { _add(String.valueOf(s)); return this; }
+        public AMGGStringBuilder add(@Nullable Object o) { _add(String.valueOf(o)); return this; }
         public AMGGStringBuilder addIf(boolean condition, String s) { if(condition) { add(s); } return this; }
         public AMGGStringBuilder addIf(boolean condition, Object o) { if(condition) { add(o); } return this; }
         public AMGGStringBuilder addFormat(@PrintFormat String format, Object... args) {
@@ -154,14 +156,15 @@ public class ModMain {
             else currentIndent = String.join("", indentStack);
         }
         private void _add(String s) {
-            if(!s.contains("\n")) chunks.add(s);
+            if(!s.contains("\n")) builder.append(s);
             else { // "\n" in s
                 int endidx = 0, startidx = 0;
                 while((endidx = s.indexOf('\n', endidx)) >= 0) {
-
-                    chunks.add(s.substring(startidx, endidx + 1));
+                    builder.append(s, startidx, endidx + 1);
+                    if(currentIndent != null) builder.append(currentIndent);
                     startidx = endidx = endidx + 1;
                 }
+                builder.append(s, startidx, s.length());
             }
         }
         /**
@@ -175,24 +178,24 @@ public class ModMain {
          * @param indent indent string
          * @see AMGGStringBuilder#pushIndent()
          */
-        public AMGGStringBuilder pushIndent(String indent) { indentStack.push(indent); return this; }
+        public AMGGStringBuilder pushIndent(String indent) { indentStack.push(indent); updateIndent(); return this; }
         /**
          * push default indent (set by {@link #setIndent(String)} to indent stack
          * @see #setIndent
          * @see #pushIndent(String)
          */
-        public AMGGStringBuilder pushIndent() { indentStack.push(defaultIndent); return this; }
+        public AMGGStringBuilder pushIndent() { indentStack.push(defaultIndent); updateIndent(); return this; }
         /**
          * pop one level of indent from the indent stack
          * @see #clearIndent
          * @throws EmptyStackException if indent stack is already empty
          */
-        public AMGGStringBuilder popIndent() throws EmptyStackException { indentStack.pop(); return this; }
+        public AMGGStringBuilder popIndent() throws EmptyStackException { indentStack.pop(); updateIndent(); return this; }
         /**
          * clear indent stack
          * @see #popIndent
          */
-        public AMGGStringBuilder clearIndent() { indentStack.clear(); return this; }
+        public AMGGStringBuilder clearIndent() { indentStack.clear(); updateIndent(); return this; }
 
         // ==== bracketing stuff ====
 
@@ -232,7 +235,7 @@ public class ModMain {
 
         @Override
         public String toString() {
-            return String.join("", chunks);
+            return builder.toString();
         }
     }
 
@@ -273,7 +276,7 @@ public class ModMain {
     public static class AMGGCommandParent extends AMGGCommandBase {
         protected Map<String, AMGGCommandBase> subcommands = new HashMap<>();
 
-        public AMGGCommandParent(String name, String[] aliases) {
+        public AMGGCommandParent(String name, @Nullable String[] aliases) {
             super(name, aliases);
         }
         AMGGCommandParent(String name) { this(name, null); }
@@ -323,7 +326,7 @@ public class ModMain {
     public static class AMGGCommandLeaf extends AMGGCommandBase {
         private final CommandExecute executeFunc;
         private final CommandTabComplete completeFunc;
-        public AMGGCommandLeaf(String name, String[] aliases, CommandExecute executeFunc, CommandTabComplete completeFunc) {
+        public AMGGCommandLeaf(String name, @Nullable String[] aliases, CommandExecute executeFunc, CommandTabComplete completeFunc) {
             super(name, aliases);
             this.executeFunc = executeFunc;
             this.completeFunc = completeFunc;
