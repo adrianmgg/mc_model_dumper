@@ -46,27 +46,7 @@ public class ModMain {
 
     @EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
-        event.registerServerCommand(dumpModelCommand);
-    }
-
-    // TODO probably doesnt need to be its own function? idk
-    private static OBJBuilder entityRendererToObj(ICommandSender sender, net.minecraft.client.renderer.entity.Render<? extends Entity> renderer) throws CommandException {
-        if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
-        return new OBJBuilder().addModel((RenderLivingBase<?>) renderer);
-    }
-
-    /** helper to standardize naming convention & location of exported files */
-    private static Path standardExportedFilePath(String name, String suffix) {
-        return Paths.get(String.format(
-            "./%s.%s%s",
-            name,
-            new SimpleDateFormat("yyyyMMddhhmmss").format(new Date()),
-            suffix
-        ));
-    }
-
-    public static final AMGGCommandBase dumpModelCommand =
-        new AMGGCommandParent("dumpmodel")
+        event.registerServerCommand(new AMGGCommandParent("dumpmodel")
             .addSubcommand(
                 new AMGGCommandLeaf("entity_all",
                     (server, sender, args) -> {
@@ -95,10 +75,10 @@ public class ModMain {
                         } catch (ClassNotFoundException e) {
                             throw new CommandException("can't find class for name " + clzname);
                         }
-                        if(!net.minecraft.entity.Entity.class.isAssignableFrom(clz)) {
+                        if(!Entity.class.isAssignableFrom(clz)) {
                             throw new CommandException("class " + clzname + " not assignable to net.minecraft.entity.Entity");
                         }
-                        net.minecraft.client.renderer.entity.Render<? extends net.minecraft.entity.Entity> renderer = Minecraft.getMinecraft().getRenderManager().entityRenderMap.get(clz);
+                        net.minecraft.client.renderer.entity.Render<? extends Entity> renderer = Minecraft.getMinecraft().getRenderManager().entityRenderMap.get(clz);
                         if(renderer == null) throw new CommandException("no renderer found for class " + clzname);
                         try {
                             entityRendererToObj(sender, renderer)
@@ -126,6 +106,23 @@ public class ModMain {
                         .collect(Collectors.toList())
                 )
             )
-        ;
+        );
+    }
+
+    // TODO probably doesnt need to be its own function? idk
+    private static OBJBuilder entityRendererToObj(ICommandSender sender, net.minecraft.client.renderer.entity.Render<? extends Entity> renderer) throws CommandException {
+        if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
+        return new OBJBuilder().addModel((RenderLivingBase<?>) renderer);
+    }
+
+    /** helper to standardize naming convention & location of exported files */
+    private static Path standardExportedFilePath(String name, String suffix) {
+        return Paths.get(String.format(
+            "./%s.%s%s",
+            name,
+            new SimpleDateFormat("yyyyMMddhhmmss").format(new Date()),
+            suffix
+        ));
+    }
 
 }
