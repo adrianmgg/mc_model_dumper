@@ -4,6 +4,12 @@ import org.intellij.lang.annotations.PrintFormat;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.EmptyStackException;
 import java.util.Stack;
 import java.util.function.BiConsumer;
@@ -238,5 +244,10 @@ public abstract class AMGGStringBuilderBase<T extends AMGGStringBuilderBase<T>> 
         closeAllBrackets();
         clearIndent();
         return toString();
+    }
+
+    // TODO add version with default charset (what should the default be?)
+    public void finishIntoFile(Path targetPath, Charset charset) throws IOException {
+        Files.write(targetPath, finish().getBytes(charset));
     }
 }

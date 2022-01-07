@@ -3,6 +3,7 @@ package amgg.mc_model_dumper;
 import mcp.MethodsReturnNonnullByDefault;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.RenderLivingBase;
+import net.minecraft.entity.Entity;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.Mod.EventHandler;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
@@ -12,27 +13,15 @@ import org.apache.logging.log4j.Logger;
 
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.text.TextComponentString;
-import org.intellij.lang.annotations.PrintFormat;
-import org.lwjgl.util.vector.Matrix4f;
-import org.lwjgl.util.vector.Vector3f;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.EmptyStackException;
-import java.util.List;
-import java.util.Stack;
-import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @MethodsReturnNonnullByDefault
@@ -45,16 +34,6 @@ import java.util.stream.Collectors;
 )
 public class ModMain {
     private static Logger logger;
-
-    private static void dumpmodel__entity_all__execute(MinecraftServer server, ICommandSender sender, List<String> args) {
-        for(String s : dumpModelCommand.getTabCompletions(server, sender, new String[]{"entity", ""}, null)) {
-            try {
-                dumpModelCommand.execute(server, sender, new String[]{"entity", s});
-            } catch (CommandException e) {
-                logger.warn(e);
-            }
-        }
-    }
 
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -70,18 +49,44 @@ public class ModMain {
         event.registerServerCommand(dumpModelCommand);
     }
 
+    // TODO probably doesnt need to be its own function? idk
+    private static OBJBuilder entityRendererToObj(ICommandSender sender, net.minecraft.client.renderer.entity.Render<? extends Entity> renderer) throws CommandException {
+        if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
+        return new OBJBuilder().addModel((RenderLivingBase<?>) renderer);
+    }
+
+    /** helper to standardize naming convention & location of exported files */
+    private static Path standardExportedFilePath(String name, String suffix) {
+        return Paths.get(String.format(
+            "./%s.%s%s",
+            name,
+            new SimpleDateFormat("yyyyMMddhhmmss").format(new Date()),
+            suffix
+        ));
+    }
+
     public static final AMGGCommandBase dumpModelCommand =
         new AMGGCommandParent("dumpmodel")
             .addSubcommand(
                 new AMGGCommandLeaf("entity_all",
-                    ModMain::dumpmodel__entity_all__execute, // had to factor out b/c/o self reference.
+                    (server, sender, args) -> {
+                        Minecraft.getMinecraft().getRenderManager().entityRenderMap.forEach((entityClass, renderer) -> {
+                            try {
+                                entityRendererToObj(sender, renderer)
+                                    .finishIntoFile(standardExportedFilePath(entityClass.getName(), ".obj"), StandardCharsets.UTF_8);
+                                // TODO chat status message
+                            } catch (IOException | CommandException e) {
+                                logger.warn(e);
+                                // TODO! chat status message
+                            }
+                        });
+                    },
                     (server, sender, args, targetPos, argsIdx) -> null
                 )
             )
             .addSubcommand(
                 new AMGGCommandLeaf("entity",
                     (server, sender, args) -> {
-                        logger.info("{}", args);
                         if(args.size() < 1) throw new CommandException("argument [class] not specified");
                         String clzname = args.get(0);
                         Class<?> clz;
@@ -95,32 +100,30 @@ public class ModMain {
                         }
                         net.minecraft.client.renderer.entity.Render<? extends net.minecraft.entity.Entity> renderer = Minecraft.getMinecraft().getRenderManager().entityRenderMap.get(clz);
                         if(renderer == null) throw new CommandException("no renderer found for class " + clzname);
-                        if(!RenderLivingBase.class.isAssignableFrom(renderer.getClass())) throw new CommandException("associated renderer doesn't derive from RenderLivingBase");
-                        RenderLivingBase<?> rendererRLB = (RenderLivingBase<?>)renderer;
-                        OBJBuilder obj = new OBJBuilder()
-                            .addFormat("# generated by %s version %s", Properties.NAME, Properties.VERSION)
-                            .pushMatrix(new Matrix4f().scale(new Vector3f(1, -1, 1)));
-                        obj.forEach(rendererRLB.getMainModel().boxList, OBJBuilder::addModel);
                         try {
-                            String filename = String.format("./%s.%s.obj", clzname, (new SimpleDateFormat("yyyyMMddhhmmss").format(new Date())));
-                            Path filepath = Paths.get(filename);
-                            Files.write(
-                                filepath,
-                                obj.finish().getBytes(StandardCharsets.UTF_8)
-                            );
+                            entityRendererToObj(sender, renderer)
+                                .finishIntoFile(standardExportedFilePath(clzname, ".obj"), StandardCharsets.UTF_8);
                             sender.sendMessage(new TextComponentString(new AMGGStringBuilder()
-                                .addFormat("saved to %s", filepath.toAbsolutePath().toString())
+                                .addFormat("saved model for %s", clzname)
                                 .finish()
                             ));
                         } catch (IOException e) {
                             throw new CommandException("error saving obj", e);
                         }
                     },
-                    (server, sender, args, targetPos, argsIdx) ->
-                        Minecraft.getMinecraft().getRenderManager().entityRenderMap.keySet().stream()
-                            .map(Class::getName)
-                            .filter(s -> s.startsWith(args[argsIdx]))
-                            .collect(Collectors.toList())
+                    // TODO tab completion should return grouped up to first package level where names differ,
+                    //      rather than just doing all matching prefix
+                    //      for example, with the classes [foo.bar.A, foo.bar.B, foo.baz.C, foo.baz.D, foo.qux.E],
+                    //      tab completion should give the following responses
+                    //          ""          "foo.bar" "foo.baz" "foo.qux"
+                    //          "foo."      "foo.bar" "foo.baz" "foo.qux"
+                    //          "foo.b"     "foo.bar" "foo.baz"
+                    //          "foo.bar"   "foo.bar.A" "foo.bar.B"
+                    //          "foo.q"     "foo.qux.E"
+                    (server, sender, args, targetPos, argsIdx) -> Minecraft.getMinecraft().getRenderManager().entityRenderMap.keySet().stream()
+                        .map(Class::getName)
+                        .filter(s -> s.startsWith(args[argsIdx]))
+                        .collect(Collectors.toList())
                 )
             )
         ;

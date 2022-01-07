@@ -12,6 +12,8 @@ public class AMGGCommandLeaf extends AMGGCommandBase {
     private final CommandExecute executeFunc;
     private final CommandTabComplete completeFunc;
 
+    // TODO make aliases vararg rather than nullable array
+    // TODO make tab complte optional for leaf
     public AMGGCommandLeaf(String name, @Nullable String[] aliases, CommandExecute executeFunc, CommandTabComplete completeFunc) {
         super(name, aliases);
         this.executeFunc = executeFunc;

@@ -12,6 +12,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+// TODO hide leaf/parent distinction from end user (use 2 different add commands instead?)
+//      if do then also need to have a way to make commands consisting only of a single leaf
+//          (maybe a static class for the initial entry with 2 functions similar to above idea
+
 public abstract class AMGGCommandBase implements ICommand {
     public final List<String> aliases;
     public final String name;
