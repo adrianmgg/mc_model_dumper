@@ -62,8 +62,7 @@ public abstract class AMGGCommandBase implements ICommand {
 
     public final List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos) {
         List<String> ret = getTabCompletions2(server, sender, args, targetPos, 0);
-        if (ret == null) return new ArrayList<>();  // TODO keep one frozen empty list to return every time instead?
-        else return ret;
+        return (ret == null) ? Collections.emptyList() : ret;
     }
 
     abstract void execute2(MinecraftServer server, ICommandSender sender, List<String> args) throws CommandException;

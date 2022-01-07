@@ -16,8 +16,6 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 public abstract class AMGGStringBuilderBase<T extends AMGGStringBuilderBase<T>> {
-    //        private static final Formatter formatter = new Formatter(Locale.ENGLISH);
-//        private final List<String> chunks = new ArrayList<>();
     protected final Stack<String> indentStack = new Stack<>();
     protected @Nullable
     String currentIndent = null;
